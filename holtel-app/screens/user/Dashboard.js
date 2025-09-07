@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
+
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet, Pressable } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 
 // Dashboard สามารถเข้าถึงได้โดยไม่ต้องเข้าสู่ระบบ
 const Dashboard = () => {
+  
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeFloor, setActiveFloor] = useState(1);
@@ -14,7 +16,9 @@ const Dashboard = () => {
     const fetchRooms = async () => {
       try {
         const res = await axios.get('http://localhost:5001/api/rooms');
-        setRooms(res.data);
+        // map id ให้ FlatList มี key ที่ unique
+        const mappedRooms = res.data.map(r => ({ ...r, id: r._id || r.id }));
+        setRooms(mappedRooms);
       } catch (err) {
         // handle error
       } finally {
@@ -31,7 +35,11 @@ const Dashboard = () => {
   }));
 
   if (loading) {
-    return <ActivityIndicator size="large" style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} />;
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
   }
 
   return (
@@ -55,7 +63,7 @@ const Dashboard = () => {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.roomCard}
-              onPress={() => navigation.navigate('RoomDetail', { room: item })}
+              onPress={() => navigation.navigate('RoomDetailScreen', { room: item })}
             >
               <View style={styles.roomHeader}>
                 <Text style={styles.roomIcon}>🚪</Text>
@@ -76,76 +84,29 @@ const Dashboard = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
+    padding: 10,
     backgroundColor: '#f7faff',
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 18,
     color: '#1976d2',
     textAlign: 'center',
     letterSpacing: 1,
   },
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 18,
-  },
-  switchBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 18,
-    borderRadius: 20,
-    backgroundColor: '#e3f2fd',
-    marginHorizontal: 6,
-  },
-  switchBtnActive: {
-    backgroundColor: '#1976d2',
-  },
-  switchText: {
-    color: '#1976d2',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  switchTextActive: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  floorSection: {
-    marginBottom: 28,
-    backgroundColor: '#e3f2fd',
-    borderRadius: 12,
-    padding: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  floorTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    paddingVertical: 4,
-  },
-  floorTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#1565c0',
-  },
   tabRow: {
-    marginTop: 10,
+    marginTop: 8,
   },
   tabBtnRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   tabBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 18,
-    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 18,
     backgroundColor: '#e3f2fd',
     marginHorizontal: 6,
   },
@@ -164,14 +125,14 @@ const styles = StyleSheet.create({
   },
   roomCard: {
     backgroundColor: '#fff',
-    padding: 14,
+    padding: 10,
     borderRadius: 10,
-    marginBottom: 12,
+    marginBottom: 8,
     flexDirection: 'column',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
+    // ใช้ boxShadow สำหรับ web แทน shadow*
+    // boxShadow ไม่ error ใน RN Web, แต่ RN Mobile จะไม่เห็น effect
+    // elevation เฉพาะ Android
+    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
     elevation: 1,
   },
   roomHeader: {
@@ -180,11 +141,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   roomIcon: {
-    fontSize: 22,
+    fontSize: 20,
     marginRight: 8,
   },
   roomNumber: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#1976d2',
   },
@@ -196,7 +157,7 @@ const styles = StyleSheet.create({
     color: 'gray',
     fontStyle: 'italic',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 6,
   },
 });
 

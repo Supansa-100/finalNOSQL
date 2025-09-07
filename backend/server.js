@@ -1,328 +1,242 @@
-
-
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Create uploads folder if not exist
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
-// Connect MongoDB
-mongoose.connect('mongodb://localhost:27017/hotel', {
-		useNewUrlParser: true,
-		useUnifiedTopology: true,
-});
-
-// Report Schema
-const reportSchema = new mongoose.Schema({
-	user_id: String,
-	room_id: String,
-	facility: String,
-	description: String,
-	image_url: String,
-	status: { type: String, enum: ['new', 'in-progress', 'done'], default: 'new' },
-	created_at: { type: Date, default: Date.now },
-	updated_at: { type: Date, default: Date.now }
-});
-const Report = mongoose.model('Report', reportSchema);
-
-// GET /api/reports/summary
-app.get('/api/reports/summary', async (req, res) => {
-    try {
-        const newCount = await Report.countDocuments({ status: 'new' });
-        const inProgressCount = await Report.countDocuments({ status: 'in-progress' });
-        const doneCount = await Report.countDocuments({ status: 'done' });
-        res.json({ new: newCount, inProgress: inProgressCount, done: doneCount });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+// Multer config
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+        const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        cb(null, unique + path.extname(file.originalname));
     }
+});
+const upload = multer({ storage });
+
+mongoose.connect('mongodb://localhost:27017/hotel', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
 });
 
 // Room Schema
 const roomSchema = new mongoose.Schema({
-	room_number: String,
-	floor: Number,
+    room_number: { type: String, required: true, unique: true },
+    floor: Number,
+    facilities: [String]
 });
 const Room = mongoose.model('Room', roomSchema);
 
 // User Schema
 const userSchema = new mongoose.Schema({
-	username: { type: String, required: true, unique: true },
-	password: { type: String, required: true },
-	role: { type: String, enum: ['user', 'admin'], default: 'user' },
-	roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
-	name: String // Optional, for compatibility
+    username: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    role: { type: String, enum: ['user', 'admin'], default: 'user' },
+    room_number: { type: String },
+    name: String
 });
 const User = mongoose.model('User', userSchema);
 
+// Report Schema
+const reportSchema = new mongoose.Schema({
+    user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    room_number: { type: String, required: true },
+    facility: String,
+    description: String,
+    image_url: String,
+    status: { type: String, enum: ['new', 'in-progress', 'done'], default: 'new' },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now }
+});
+const Report = mongoose.model('Report', reportSchema);
+
 const JWT_SECRET = process.env.JWT_SECRET || 'secretkey';
-// POST /api/register
-// REGISTER (รับ room_number ไม่ใช่ room_id)
+
+// --------- AUTH MIDDLEWARE ---------
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.status(401).json({ message: 'No token provided' });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ message: 'Invalid token' });
+        req.user = user;
+        next();
+    });
+}
+function requireAdmin(req, res, next) {
+    if (!req.user || req.user.role !== 'admin') {
+        return res.status(403).json({ message: 'Admin only' });
+    }
+    next();
+}
+
+// --------- AUTH API ---------
+
+// REGISTER
 app.post('/api/register', async (req, res) => {
     try {
-        const { username, password, role = 'user', room_number, name } = req.body;
-
-        if (!username || !password) {
-            return res.status(400).json({ message: 'Missing required fields' });
+        const { username, password, name, room_id } = req.body;
+        if (!username || !password || !name || !room_id) {
+            return res.status(400).json({ message: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
         }
-        if (role !== 'user' && role !== 'admin') {
-            return res.status(400).json({ message: 'Invalid role' });
-        }
-
-        const existingUser = await User.findOne({ username });
-        if (existingUser) {
-            return res.status(400).json({ message: 'Username already exists' });
-        }
-
-        let room_id = undefined;
-        if (role === 'user') {
-            if (!room_number) {
-                return res.status(400).json({ message: 'Missing room_number' });
-            }
-            const room = await Room.findOne({ room_number: room_number });
-            if (!room) {
-                return res.status(400).json({ message: 'Room not found' });
-            }
-            room_id = room._id;
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        const userData = {
+        const exists = await User.findOne({ username });
+        if (exists) return res.status(400).json({ message: 'Username ซ้ำ' });
+        const hash = await bcrypt.hash(password, 10);
+        const user = new User({
             username,
-            password: hashedPassword,
-            role,
-            name
-        };
-        if (room_id) {
-            userData.room_id = room_id;
-        }
-
-        const user = new User(userData);
+            password: hash,
+            name,
+            role: 'user',
+            room_number: room_id,
+        });
         await user.save();
+        res.json({ message: 'สมัครสมาชิกสำเร็จ!', user: { username, name, role: 'user', room_number: room_id } });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
 
-        res.status(201).json({
-            message: 'User registered',
-            user: {
-                id: user._id,
-                username: user.username,
-                role: user.role,
-                name: user.name,
-                room_id: user.room_id || null
-            }
+// LOGIN
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        if (!username || !password) return res.status(400).json({ message: 'กรุณากรอกข้อมูลให้ครบ' });
+        const user = await User.findOne({ username });
+        if (!user) return res.status(400).json({ message: 'User not found' });
+        const match = await bcrypt.compare(password, user.password);
+        if (!match) return res.status(400).json({ message: 'รหัสผ่านผิด' });
+
+        const token = jwt.sign({ id: user._id, role: user.role, username: user.username }, JWT_SECRET, { expiresIn: '2d' });
+        res.json({ 
+            message: 'Login success', 
+            token,
+            user: { username: user.username, name: user.name, role: user.role, room_number: user.room_number }
         });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 });
 
-// POST /api/login
-app.post('/api/login', async (req, res) => {
-	try {
-		const { username, password } = req.body;
-		const user = await User.findOne({ username });
-		if (!user) {
-			return res.status(400).json({ message: 'Invalid username or password' });
-		}
-		const isMatch = await bcrypt.compare(password, user.password);
-		if (!isMatch) {
-			return res.status(400).json({ message: 'Invalid username or password' });
-		}
-		const token = jwt.sign({ id: user._id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-		res.json({
-			token,
-			user: {
-				id: user._id,
-				username: user.username,
-				role: user.role,
-				name: user.name
-			}
-		});
-	} catch (err) {
-		res.status(500).json({ message: err.message });
-	}
-});
-
-
-// GET /api/reports
-app.get('/api/reports', async (req, res) => {
-	try {
-		const { floor, room, status } = req.query;
-		let roomFilter = {};
-		if (floor) roomFilter.floor = Number(floor);
-		if (room) roomFilter.room_number = room;
-		let rooms = [];
-		if (floor || room) {
-			rooms = await Room.find(roomFilter).select('_id');
-		}
-		let filter = {};
-		if (status) filter.status = status;
-		if (rooms.length > 0) filter.room_id = { $in: rooms.map(r => r._id) };
-		const reports = await Report.find(filter)
-			.populate({ path: 'user_id', select: 'name' })
-			.populate({ path: 'room_id', select: 'room_number floor' })
-			.sort({ created_at: -1 });
-		const result = reports.map(r => ({
-			id: r._id,
-			room: r.room_id ? {
-				room_number: r.room_id.room_number,
-				floor: r.room_id.floor
-			} : null,
-			user: r.user_id ? {
-				name: r.user_id.name
-			} : null,
-			facility: r.facility,
-			description: r.description,
-			status: r.status,
-			createdAt: r.created_at
-		}));
-		res.json(result);
-	} catch (err) {
-		res.status(500).json({ message: err.message });
-	}
-});
-
-// GET /api/reports/:id
-app.get('/api/reports/:id', async (req, res) => {
-	try {
-		const report = await Report.findById(req.params.id)
-			.populate({ path: 'user_id', select: 'name' })
-			.populate({ path: 'room_id', select: 'room_number floor' });
-		if (!report) return res.status(404).json({ message: 'Report not found' });
-		res.json({
-			id: report._id,
-			room: report.room_id ? {
-				room_number: report.room_id.room_number,
-				floor: report.room_id.floor
-			} : null,
-			user: report.user_id ? {
-				name: report.user_id.name
-			} : null,
-			facility: report.facility,
-			description: report.description,
-			image_url: report.image_url,
-			status: report.status,
-			createdAt: report.created_at,
-			updatedAt: report.updated_at
-		});
-	} catch (err) {
-		res.status(500).json({ message: err.message });
-	}
-});
-
-// PATCH /api/reports/:id
-app.patch('/api/reports/:id', async (req, res) => {
-	try {
-		const { status } = req.body;
-		const report = await Report.findByIdAndUpdate(
-			req.params.id,
-			{ status, updated_at: new Date() },
-			{ new: true }
-		)
-			.populate({ path: 'user_id', select: 'name' })
-			.populate({ path: 'room_id', select: 'room_number floor' });
-		if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
-		res.json({
-			success: true,
-			message: 'updated',
-			data: {
-				id: report._id,
-				room: report.room_id ? {
-					room_number: report.room_id.room_number,
-					floor: report.room_id.floor
-				} : null,
-				user: report.user_id ? {
-					name: report.user_id.name
-				} : null,
-				facility: report.facility,
-				description: report.description,
-				image_url: report.image_url,
-				status: report.status,
-				createdAt: report.created_at,
-				updatedAt: report.updated_at
-			}
-		});
-	} catch (err) {
-		res.status(500).json({ success: false, message: err.message });
-	}
-});
-
-// GET /api/rooms
+// --------- ROOM API ---------
 app.get('/api/rooms', async (req, res) => {
-	try {
-		const rooms = await Room.find();
-		const result = rooms.map(r => ({
-			id: r._id,
-			room_number: r.room_number,
-			floor: r.floor,
-			facilities: r.facilities || []
-		}));
-		res.json(result);
-	} catch (err) {
-		res.status(500).json({ message: err.message });
-	}
+    try {
+        const { floor } = req.query;
+        let filter = {};
+        if (floor) filter.floor = Number(floor);
+        const rooms = await Room.find(filter);
+        res.json(rooms);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+app.get('/api/rooms/:room_number', async (req, res) => {
+    try {
+        const room = await Room.findOne({ room_number: req.params.room_number });
+        if (!room) return res.status(404).json({ message: 'Room not found' });
+        res.json(room);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 });
 
-// POST /api/rooms
-app.post('/api/rooms', async (req, res) => {
-	try {
-		const { room_number, floor, facilities } = req.body;
-		const newRoom = new Room({ room_number, floor, facilities });
-		await newRoom.save();
-		res.status(201).json({ success: true, message: 'Room created', room: {
-			id: newRoom._id,
-			room_number: newRoom.room_number,
-			floor: newRoom.floor,
-			facilities: newRoom.facilities
-		}});
-	} catch (err) {
-		res.status(500).json({ success: false, message: err.message });
-	}
+// --------- REPORT API (user) ---------
+app.post('/api/report', upload.single('image'), authenticateToken, async (req, res) => {
+    try {
+        const { room_number, facility, description } = req.body;
+        let image_url = null;
+        if (req.file) {
+            image_url = '/uploads/' + req.file.filename;
+        }
+        // ตรวจสอบว่าห้องมีอยู่จริง
+        const room = await Room.findOne({ room_number });
+        if (!room) return res.status(400).json({ message: 'Room not found' });
+
+        const report = new Report({
+            user_id: req.user.id,
+            room_number,
+            facility,
+            description,
+            image_url
+        });
+        await report.save();
+        res.status(201).json({ message: 'Report created', report });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 });
 
-// PUT /api/rooms/:id
-app.put('/api/rooms/:id', async (req, res) => {
-	try {
-		const { room_number, floor, facilities } = req.body;
-		const update = {};
-		if (room_number !== undefined) update.room_number = room_number;
-		if (floor !== undefined) update.floor = floor;
-		if (facilities !== undefined) update.facilities = facilities;
-		const room = await Room.findByIdAndUpdate(req.params.id, update, { new: true });
-		if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
-		res.json({ success: true, message: 'Room updated', room: {
-			id: room._id,
-			room_number: room.room_number,
-			floor: room.floor,
-			facilities: room.facilities
-		}});
-	} catch (err) {
-		res.status(500).json({ success: false, message: err.message });
-	}
+// เสิร์ฟไฟล์อัปโหลด
+app.use('/uploads', express.static(uploadDir));
+
+// GET รายการรีพอร์ต
+// ผู้ใช้: ดูเฉพาะห้องตัวเอง, แอดมิน: ดูทั้งหมด
+app.get('/api/reports', authenticateToken, async (req, res) => {
+    try {
+        const { status, room_number } = req.query;
+        let filter = {};
+        if (req.user.role === 'user') {
+            filter.room_number = req.user.room_number;
+        } else if (room_number) {
+            filter.room_number = room_number;
+        }
+        if (status) filter.status = status;
+
+        const reports = await Report.find(filter)
+            .populate({ path: 'user_id', select: 'name username room_number' })
+            .sort({ created_at: -1 });
+        res.json(reports);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 });
 
-// DELETE /api/rooms/:id
-app.delete('/api/rooms/:id', async (req, res) => {
-	try {
-		const room = await Room.findByIdAndDelete(req.params.id);
-		if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
-		res.json({ success: true, message: 'Room deleted' });
-	} catch (err) {
-		res.status(500).json({ success: false, message: err.message });
-	}
+// PATCH อัปเดตสถานะรีพอร์ต (admin รับงาน/สำเร็จ)
+app.patch('/api/reports/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { status } = req.body;
+        const report = await Report.findByIdAndUpdate(
+            req.params.id,
+            { status, updated_at: new Date() },
+            { new: true }
+        );
+        if (!report) return res.status(404).json({ message: 'Report not found' });
+        res.json({ message: 'Status updated', report });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 });
 
+// --------- ADMIN API (ตัวอย่าง) ---------
+app.get('/api/admin/reports/statistics', authenticateToken, requireAdmin, async (req, res) => {
+    // รายงานสถิติ
+    try {
+        const counts = await Report.aggregate([
+            { $group: { _id: '$status', count: { $sum: 1 } } }
+        ]);
+        const summary = { new: 0, 'in-progress': 0, done: 0 };
+        counts.forEach(c => { summary[c._id] = c.count; });
+        res.json(summary);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
 
-
+// ... เพิ่ม endpoint อื่น ๆ ได้ตามที่ต้องการ ...
 
 // -------------------- START SERVER --------------------
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
-	console.log(`Server running at http://localhost:${PORT}`);
+    console.log(`Server running at http://localhost:${PORT}`);
 });

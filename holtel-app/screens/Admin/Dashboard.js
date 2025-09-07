@@ -1,82 +1,188 @@
-// Dashboard.js
-import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
-import axios from 'axios';
+import React, { useState, useEffect, useContext } from 'react';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+// ถ้าใช้ react-native-chart-kit สำหรับ doughnut chart บน web ให้ import แบบนี้
+// import { Doughnut } from 'react-chartjs-2';
+import { AuthContext } from '../AuthContext';
 import { useNavigation } from '@react-navigation/native';
 
-const cardColors = {
-  new: '#3B82F6', // blue
-  inProgress: '#FACC15', // yellow
-  done: '#22C55E', // green
+// ถ้าไม่ได้ใช้ chart ให้คอมเมนต์ section กราฟออก
+
+const STATUS_LABEL = {
+  new: 'รอรับเรื่อง',
+  'in-progress': 'กำลังดำเนินการ',
+  done: 'สำเร็จแล้ว'
 };
 
-const Dashboard = () => {
-  const [summary, setSummary] = useState({ new: 0, inProgress: 0, done: 0 });
+const STATUS_COLOR = {
+  new: '#fbbc04',          // yellow
+  'in-progress': '#4285f4', // blue
+  done: '#34a853'           // green
+};
+
+const AdminDashboard = () => {
+  const { auth } = useContext(AuthContext);
+  const [stats, setStats] = useState({ new: 0, 'in-progress': 0, done: 0 });
   const [loading, setLoading] = useState(true);
   const navigation = useNavigation();
 
   useEffect(() => {
-    axios.get('http://localhost:5001/api/reports/summary')
-      .then(res => {
-        setSummary(res.data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    const fetchStats = async () => {
+      setLoading(true);
+      try {
+        // สมมติว่าต้องแนบ token สำหรับ admin
+        const res = await fetch('http://localhost:5001/api/admin/reports/statistics', {
+          headers: {
+            'Authorization': `Bearer ${auth.token}`,
+          }
+        });
+        if (!res.ok) throw new Error('ไม่สามารถดึงข้อมูลได้');
+        const data = await res.json();
+        setStats({
+          new: data.new || 0,
+          'in-progress': data['in-progress'] || 0,
+          done: data.done || 0
+        });
+      } catch (err) {
+        Alert.alert('Error', err.message || 'เกิดข้อผิดพลาด');
+      }
+      setLoading(false);
+    };
+    fetchStats();
   }, []);
 
-  const cards = [
-    { label: 'แจ้งใหม่วันนี้', key: 'new', color: cardColors.new },
-    { label: 'กำลังดำเนินการ', key: 'inProgress', color: cardColors.inProgress },
-    { label: 'เสร็จสิ้นแล้ว', key: 'done', color: cardColors.done },
-  ];
+  const total = stats.new + stats['in-progress'] + stats.done;
 
-  const isMobile = Dimensions.get('window').width < 600;
+  // ตัวอย่างข้อมูลสำหรับ chart.js (web) หรือ react-native-chart-kit (mobile)
+  // const chartData = {
+  //   labels: [STATUS_LABEL.new, STATUS_LABEL['in-progress'], STATUS_LABEL.done],
+  //   datasets: [{
+  //     data: [stats.new, stats['in-progress'], stats.done],
+  //     backgroundColor: [STATUS_COLOR.new, STATUS_COLOR['in-progress'], STATUS_COLOR.done],
+  //   }],
+  // };
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: '#F3F4F6' }}>
-      <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 16 }}>Admin Dashboard</Text>
+    <View style={styles.container}>
+      <Text style={styles.header}>Admin Dashboard</Text>
+      <Text style={styles.subHeader}>สรุปสถานะรีพอร์ต</Text>
       {loading ? (
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" style={{marginTop: 40}} />
       ) : (
-        <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 16 }}>
-          {cards.map(card => (
-            <View
-              key={card.key}
-              style={{
-                flex: 1,
-                backgroundColor: card.color,
-                borderRadius: 12,
-                padding: 24,
-                marginBottom: isMobile ? 16 : 0,
-                marginRight: isMobile ? 0 : 16,
-                alignItems: 'center',
-                justifyContent: 'center',
-                shadowColor: '#000',
-                shadowOpacity: 0.1,
-                shadowRadius: 8,
-                elevation: 4,
-              }}
-            >
-              <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 8 }}>{card.label}</Text>
-              <Text style={{ color: '#fff', fontSize: 32, fontWeight: 'bold' }}>{summary[card.key]}</Text>
+        <View>
+          <View style={styles.statusRow}>
+            <View style={styles.statusCard}>
+              <Text style={[styles.statusLabel, {color: STATUS_COLOR.new}]}>{STATUS_LABEL.new}</Text>
+              <Text style={styles.statusCount}>{stats.new}</Text>
             </View>
-          ))}
+            <View style={styles.statusCard}>
+              <Text style={[styles.statusLabel, {color: STATUS_COLOR['in-progress']}]}>{STATUS_LABEL['in-progress']}</Text>
+              <Text style={styles.statusCount}>{stats['in-progress']}</Text>
+            </View>
+            <View style={styles.statusCard}>
+              <Text style={[styles.statusLabel, {color: STATUS_COLOR.done}]}>{STATUS_LABEL.done}</Text>
+              <Text style={styles.statusCount}>{stats.done}</Text>
+            </View>
+          </View>
+          <Text style={styles.totalText}>รวมทั้งหมด: <Text style={{fontWeight: 'bold'}}>{total}</Text> รายการ</Text>
+
+          {/* Doughnut Chart (web only or ifใช้ chartkit บน mobile) */}
+          {/* <View style={{alignItems: 'center', marginTop: 30}}>
+            <Doughnut data={chartData} width={220} height={220} />
+          </View> */}
+
+          <TouchableOpacity
+            style={styles.linkBtn}
+            onPress={() => navigation.navigate('AdminReportList')}
+          >
+            <Text style={styles.linkBtnText}>ดูรายการรีพอร์ตทั้งหมด</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkBtnSecondary}
+            onPress={() => navigation.navigate('AdminStatistic')}
+          >
+            <Text style={styles.linkBtnText2}>ดูสถิติ/กราฟเพิ่มเติม</Text>
+          </TouchableOpacity>
         </View>
       )}
-      <TouchableOpacity
-        style={{
-          marginTop: 32,
-          backgroundColor: '#3B82F6',
-          padding: 16,
-          borderRadius: 8,
-          alignItems: 'center',
-        }}
-        onPress={() => navigation.navigate('AdminReportList')}
-      >
-        <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>ไปยัง Report List</Text>
-      </TouchableOpacity>
     </View>
   );
 };
 
-export default Dashboard;
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 18,
+    backgroundColor: '#f8fafc',
+  },
+  header: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    color: '#1976d2',
+    textAlign: 'center',
+    marginBottom: 10,
+    letterSpacing: 1,
+  },
+  subHeader: {
+    fontSize: 18,
+    textAlign: 'center',
+    color: '#333',
+    marginBottom: 20,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+  },
+  statusCard: {
+    alignItems: 'center',
+    padding: 18,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    minWidth: 100,
+    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+  },
+  statusLabel: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  statusCount: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1976d2',
+  },
+  totalText: {
+    textAlign: 'center',
+    fontSize: 17,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  linkBtn: {
+    backgroundColor: '#1976d2',
+    padding: 12,
+    borderRadius: 10,
+    marginHorizontal: 30,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  linkBtnText: {
+    color: '#fff',
+    fontSize: 17,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  linkBtnSecondary: {
+    backgroundColor: '#e3f2fd',
+    padding: 10,
+    borderRadius: 10,
+    marginHorizontal: 30,
+  },
+  linkBtnText2: {
+    color: '#1976d2',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  }
+});
+
+export default AdminDashboard;

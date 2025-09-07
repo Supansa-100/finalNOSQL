@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "@react-navigation/bottom-tabs": "^7.4.7"
+    "@react-navigation/bottom-tabs": "^7.4.7",
+    "expo-image-picker": "^16.1.4"
   }
 }

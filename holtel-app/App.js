@@ -1,25 +1,35 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import MainTabNavigator from './navigation/MainTabNavigator';
+import { AuthProvider, AuthContext } from './screens/AuthContext';
 import AuthScreen from './screens/AuthScreen';
-import RoomDetailScreen from './screens/RoomDetailScreen';
-import ReportScreen from './screens/ReportScreen';
-import MyReportsScreen from './screens/MyReportsScreen';
-import Dashboard from './screens/Dashboard';
+import MainTabNavigator from './navigation/MainTabNavigator';
 import AdminDashboard from './screens/Admin/Dashboard';
 
 const Stack = createNativeStackNavigator();
 
-// Auth Context
-const AuthContext = createContext();
+const AppNavigator = () => {
+  const { auth } = React.useContext(AuthContext);
 
-const App = () => {
-	return (
-		<NavigationContainer>
-			<MainTabNavigator />
-		</NavigationContainer>
-	);
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      {!auth.user ? (
+        <Stack.Screen name="Auth" component={AuthScreen} />
+      ) : auth.role === 'admin' ? (
+        <Stack.Screen name="AdminDashboard" component={AdminDashboard} />
+      ) : (
+        <Stack.Screen name="MainTab" component={MainTabNavigator} />
+      )}
+    </Stack.Navigator>
+  );
 };
 
-export default App;
+export default function App() {
+  return (
+    <AuthProvider>
+      <NavigationContainer>
+        <AppNavigator />
+      </NavigationContainer>
+    </AuthProvider>
+  );
+}

@@ -1,51 +1,40 @@
-require('dotenv').config();
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const User = require('./models/User'); // import model User ของคุณ
+const express = require('express');
+const router = express.Router();
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const Report = require('../models/Report');
 
-async function createAdmin() {
-  try {
-    // เชื่อมต่อ MongoDB
-    await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    });
+// GET /api/admin/reports - ดูรีพอร์ตทั้งหมด
+router.get('/reports', authenticateToken, requireAdmin, async (req, res) => {
+  const { status } = req.query; // กรองสถานะได้
+  const filter = status ? { status } : {};
+  const reports = await Report.find(filter).sort({ created_at: -1 });
+  res.json(reports);
+});
 
-    console.log('✅ Connected to MongoDB');
-
-    // เช็คว่ามี admin อยู่แล้วหรือยัง
-    const existingAdmin = await User.findOne({ role: 'admin' });
-    if (existingAdmin) {
-      console.log('⚠️ Admin already exists:', existingAdmin.username);
-      process.exit(0);
-    }
-
-    // กำหนดค่าของ admin คนแรก
-    const username = 'admin';
-    const password = 'admin123'; // แนะนำให้แก้ใน production
-    const name = 'System Administrator';
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // สร้าง admin
-    const admin = new User({
-      username,
-      password: hashedPassword,
-      role: 'admin',
-      name
-    });
-
-    await admin.save();
-    console.log('🎉 Admin created successfully');
-    console.log('👉 Username:', username);
-    console.log('👉 Password:', password);
-
-    process.exit(0);
-  } catch (err) {
-    console.error('❌ Error creating admin:', err.message);
-    process.exit(1);
+// PATCH /api/admin/reports/:id/status - อัปเดตสถานะรีพอร์ต
+router.patch('/reports/:id/status', authenticateToken, requireAdmin, async (req, res) => {
+  const { status } = req.body;
+  if (!['new','in-progress','done'].includes(status)) {
+    return res.status(400).json({ message: 'Invalid status' });
   }
-}
+  const report = await Report.findByIdAndUpdate(
+    req.params.id,
+    { status },
+    { new: true }
+  );
+  if (!report) return res.status(404).json({ message: 'Report not found' });
+  res.json(report);
+});
 
-createAdmin();
+// GET /api/admin/reports/statistics - summary (dashboard)
+router.get('/reports/statistics', authenticateToken, requireAdmin, async (req, res) => {
+  const counts = await Report.aggregate([
+    { $group: { _id: '$status', count: { $sum: 1 } } }
+  ]);
+  // แปลงให้อ่านง่าย
+  const summary = { new: 0, 'in-progress': 0, done: 0 };
+  counts.forEach(c => { summary[c._id] = c.count; });
+  res.json(summary);
+});
+
+module.exports = router;

@@ -1,10 +1,10 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 
-const RoomScreen = () => (
+const MyReportsScreen = () => (
   <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-    <Text>Room Screen</Text>
+    <Text>รายการแจ้งซ่อมของฉัน</Text>
   </View>
 );
 
-export default RoomScreen;
+export default MyReportsScreen;

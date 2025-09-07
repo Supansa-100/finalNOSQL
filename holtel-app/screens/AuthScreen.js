@@ -1,105 +1,65 @@
-// AuthScreen.js
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, Alert, TouchableOpacity } from 'react-native';
+import React, { useState, useContext } from 'react';
+import { View, Text, TextInput, Button, TouchableOpacity, Alert } from 'react-native';
 import axios from 'axios';
-import { useNavigation } from '@react-navigation/native';
+import { AuthContext } from './AuthContext';
 
 const AuthScreen = () => {
-  const [mode, setMode] = useState('login'); // 'login' or 'register'
+  const { setAuth } = useContext(AuthContext);
+  const [mode, setMode] = useState('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [name, setName] = useState('');
   const [room_id, setRoomId] = useState('');
-  const navigation = useNavigation();
-
-  const resetFields = () => {
-    setUsername('');
-    setPassword('');
-    setConfirmPassword('');
-    setName('');
-    setRoomId('');
-  };
 
   const handleSubmit = async () => {
-    if (!username || !password || (mode === 'register' && (!confirmPassword || !name || !room_id))) {
-      Alert.alert('Error', 'กรุณากรอกข้อมูลให้ครบถ้วน');
+    if (!username || !password || (mode === 'register' && (!confirm || !name || !room_id))) {
+      Alert.alert('กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
-    if (mode === 'register' && password !== confirmPassword) {
-      Alert.alert('Error', 'รหัสผ่านไม่ตรงกัน');
+    if (mode === 'register' && password !== confirm) {
+      Alert.alert('รหัสผ่านไม่ตรงกัน');
       return;
     }
     try {
       if (mode === 'login') {
         const res = await axios.post('http://localhost:5001/api/login', { username, password });
-        // นำผู้ใช้ไปหน้า Dashboard
-        navigation.replace('Dashboard', { user: res.data.user, token: res.data.token });
-      } else {
-        const res = await axios.post('http://localhost:5001/api/register', {
-          username,
-          password,
-          name,
-          role: 'user',
-          room_id
+        setAuth({
+          user: res.data.user,
+          token: res.data.token,
+          role: res.data.user.role,
         });
-        Alert.alert('Register Success', 'สมัครสมาชิกสำเร็จ!');
-        navigation.replace('Dashboard', { user: res.data.user });
+      } else {
+        await axios.post('http://localhost:5001/api/register', { username, password, name, room_id });
+        Alert.alert('สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ');
+        setMode('login');
+        setUsername('');
+        setPassword('');
+        setConfirm('');
+        setName('');
+        setRoomId('');
       }
     } catch (err) {
-      Alert.alert(mode === 'login' ? 'Login Failed' : 'Register Failed', err.response?.data?.message || 'Error');
+      Alert.alert('เกิดข้อผิดพลาด', err.response?.data?.message || 'Error');
     }
   };
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-      <Text style={{ fontSize: 24, marginBottom: 20 }}>{mode === 'login' ? 'Login' : 'Register'}</Text>
-      <TextInput
-        placeholder="Username"
-        value={username}
-        onChangeText={setUsername}
-        style={{ borderWidth: 1, width: '100%', marginBottom: 10, padding: 8 }}
-      />
-      <TextInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        style={{ borderWidth: 1, width: '100%', marginBottom: 10, padding: 8 }}
-      />
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+      <Text style={{ fontSize: 32, marginBottom: 24 }}>{mode === 'login' ? 'เข้าสู่ระบบ' : 'สมัครสมาชิก'}</Text>
+      <TextInput placeholder="Username" value={username} onChangeText={setUsername} style={{ width: 250, borderWidth: 1, marginBottom: 8, padding: 8 }} />
+      <TextInput placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry style={{ width: 250, borderWidth: 1, marginBottom: 8, padding: 8 }} />
       {mode === 'register' && (
         <>
-          <TextInput
-            placeholder="Confirm Password"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-            style={{ borderWidth: 1, width: '100%', marginBottom: 10, padding: 8 }}
-          />
-          <TextInput
-            placeholder="Name"
-            value={name}
-            onChangeText={setName}
-            style={{ borderWidth: 1, width: '100%', marginBottom: 10, padding: 8 }}
-          />
-          <TextInput
-            placeholder="Room ID"
-            value={room_id}
-            onChangeText={setRoomId}
-            style={{ borderWidth: 1, width: '100%', marginBottom: 10, padding: 8 }}
-          />
+          <TextInput placeholder="ยืนยันรหัสผ่าน" value={confirm} onChangeText={setConfirm} secureTextEntry style={{ width: 250, borderWidth: 1, marginBottom: 8, padding: 8 }} />
+          <TextInput placeholder="ชื่อ-นามสกุล" value={name} onChangeText={setName} style={{ width: 250, borderWidth: 1, marginBottom: 8, padding: 8 }} />
+          <TextInput placeholder="หมายเลขห้อง" value={room_id} onChangeText={setRoomId} style={{ width: 250, borderWidth: 1, marginBottom: 8, padding: 8 }} />
         </>
       )}
-      <Button title={mode === 'login' ? 'Login' : 'Register'} onPress={handleSubmit} />
-      <TouchableOpacity
-        onPress={() => {
-          setMode(mode === 'login' ? 'register' : 'login');
-          resetFields();
-        }}
-        style={{ marginTop: 20 }}
-      >
-        <Text style={{ color: 'blue' }}>
-          {mode === 'login' ? 'สมัครสมาชิก (Register)' : 'เข้าสู่ระบบ (Login)'}
+      <Button title={mode === 'login' ? 'เข้าสู่ระบบ' : 'สมัครสมาชิก'} onPress={handleSubmit} />
+      <TouchableOpacity onPress={() => setMode(mode === 'login' ? 'register' : 'login')}>
+        <Text style={{ marginTop: 16, color: 'blue' }}>
+          {mode === 'login' ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}
         </Text>
       </TouchableOpacity>
     </View>
