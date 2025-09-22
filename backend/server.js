@@ -35,11 +35,6 @@ const userSchema = new mongoose.Schema({
     role: { type: String, default: 'user' }
 });
 const User = mongoose.model('User', userSchema);
-// Start server
-const PORT = 5001;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
 // --------- AUTH API ---------
 const JWT_SECRET = process.env.JWT_SECRET || 'secretkey';
 
@@ -269,10 +264,8 @@ app.delete('/api/bookings/:id/delete', authenticateToken, async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
-// Start server (ประกาศ PORT แค่ครั้งเดียว)
-if (typeof PORT === 'undefined') {
-    // ...existing code...
-}
+// ใช้ PORT จาก env ถ้ามี และเริ่มเซิร์ฟเวอร์เพียงครั้งเดียว (วางไว้ตอนท้ายไฟล์)
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
-        console.log(`Server running at http://localhost:${PORT}`);
+    console.log(`Server running at http://localhost:${PORT}`);
 });
